@@ -1,8 +1,10 @@
-# 환상 콜라보 (play)
+# fantasy-collab-play
 
-HTML5 build of the private source repo [`junsa80/fantasy-collab`](https://github.com/junsa80/fantasy-collab).
+Public HTML5 build of **환상 콜라보** (private source: junsa80/fantasy-collab).
 
-- **Play:** https://junsa80.github.io/fantasy-collab-play/
-- **Source:** private — this repo is **web export only** (no Godot project source)
+- Live: https://junsa80.github.io/fantasy-collab-play/
+- Engine: Godot 4.7.2.stable
+- Source tip: `6821eaf72ddd185e79754683f71590bde2863484`
+- Mobile: global theme font 24; scale=0.5 UIs use font 40 (~12px CSS @390px width)
 
-Engine: Godot **4.7.2.stable** · Web templates · nothreads variant.
+MIT — see LICENSE. Upstream framework: kuryart/godot-jrpg.
