@@ -453,8 +453,13 @@
   }
   function save() {
     meta.midFight = phase === "battle";
-    localStorage.setItem(KEY, JSON.stringify(meta));
-    hasSave = true;
+    try {
+      localStorage.setItem(KEY, JSON.stringify(meta));
+      hasSave = true;
+      meta.saveOk = true;
+    } catch (e) {
+      meta.saveOk = false;
+    }
   }
   function healAll() {
     meta.party.concat(meta.roster).forEach(function (id) {
@@ -472,10 +477,8 @@
     }
     if (meta && meta.midFight) {
       meta.midFight = false;
-      meta.room = "gate";
-      healAll();
       meta.safeSteps = 0;
-      localStorage.setItem(KEY, JSON.stringify(meta));
+      try { localStorage.setItem(KEY, JSON.stringify(meta)); } catch (e) { /* keep going */ }
     }
     phase = "title";
     render();
@@ -520,7 +523,11 @@
     app.appendChild(el("p", "muted", "발은 네가 움직이지 않는다. 출구나 상자를 누르면, 그 거리만큼 걸었다고 치고 조우를 굴린다."));
     var box = el("div", "stack");
     box.style.marginTop = "18px";
-    if (hasSave) box.appendChild(btn("continue", "이어하기", "현관이 아니면 그 방에서", true));
+    if (hasSave && meta) {
+      var where = ROOMS[meta.room] ? ROOMS[meta.room].name : "현관";
+      var who = meta.party.map(function (id) { return ALLIES[id].name + " 숙련 " + (meta.veteran[id] || 0); }).join(" · ");
+      box.appendChild(btn("continue", "이어하기", where + " · 조각 " + meta.shards + " · " + who, true));
+    }
     box.appendChild(btn("new", "새 게임", hasSave ? "지금 기록 위에 덮어쓴다" : "아린 · 세라 · 아리아", !hasSave));
     app.appendChild(box);
   }
@@ -528,7 +535,7 @@
     var room = ROOMS[meta.room];
     var top = el("div", "top");
     var left = el("div");
-    left.appendChild(el("p", "gold", "조각 " + meta.shards + " · 안전 " + meta.safeSteps));
+    left.appendChild(el("p", "gold", (meta.saveOk === false ? "저장 실패" : "저장됨") + " · 조각 " + meta.shards + " · 안전 " + meta.safeSteps));
     left.appendChild(el("h2", "", room.name));
     top.appendChild(left);
     top.appendChild(btn("title", "타이틀", ""));
@@ -537,6 +544,7 @@
     back.style.minHeight = "44px";
     app.appendChild(top);
     app.appendChild(el("p", "muted", roomLine(room)));
+    if (meta.lastGrowth) app.appendChild(el("p", "gold", meta.lastGrowth));
     var map = el("div", "map");
     Object.keys(ROOMS).forEach(function (id) {
       var r = ROOMS[id];
@@ -546,6 +554,9 @@
     });
     app.appendChild(map);
     var stack = el("div", "stack");
+    if (meta.cleared && meta.room === "throne") {
+      stack.appendChild(btn("escape", "현관으로 탈출", "주사위 없음. 체력은 돌아온다", true));
+    }
     if (meta.room === "gate") {
       stack.appendChild(btn("rest", "전원 회복", "현관에서만. 쓰러진 아군도"));
       stack.appendChild(partyCard());
@@ -575,7 +586,7 @@
     var slots = el("div", "row");
     slots.style.margin = "8px 0";
     meta.party.forEach(function (id, i) {
-      var b = btn("slot:" + i, ALLIES[id].name, curHp(id) + " / " + maxHp(ALLIES[id], meta.ranks[id] || 0));
+      var b = btn("slot:" + i, ALLIES[id].name, "숙련 " + (meta.veteran[id] || 0) + " · 공격 " + atkOf(ALLIES[id], meta.ranks[id] || 0, meta.veteran[id] || 0) + " · " + curHp(id) + "/" + maxHp(ALLIES[id], meta.ranks[id] || 0));
       b.style.width = "auto";
       b.style.flex = "1";
       if (slot === i) b.classList.add("aim");
@@ -696,14 +707,33 @@
     if (won) {
       meta.safeSteps = 3;
       meta.shards += 6 + ((pending && pending.plan && pending.plan.risky) || 0);
-      var who = meta.party.filter(function (id) { return (meta.hp[id] || 0) > 0; })[0];
-      if (who && (meta.veteran[who] || 0) < 10) meta.veteran[who] = (meta.veteran[who] || 0) + 1;
+      var lines = [];
+      meta.party.forEach(function (id) {
+        if ((meta.hp[id] || 0) <= 0) return;
+        var beforeV = meta.veteran[id] || 0;
+        var rank = meta.ranks[id] || 0;
+        var a0 = atkOf(ALLIES[id], rank, beforeV);
+        if (beforeV < 10) meta.veteran[id] = beforeV + 1;
+        var a1 = atkOf(ALLIES[id], rank, meta.veteran[id] || 0);
+        lines.push(ALLIES[id].name + " 숙련 " + beforeV + "→" + (meta.veteran[id] || 0) + " · 공격 " + a0 + "→" + a1);
+      });
+      meta.lastGrowth = lines.join(" / ");
       applyLoot();
       if (pending && pending.dest) {
         meta.room = pending.dest;
         if (meta.visited.indexOf(pending.dest) < 0) meta.visited.push(pending.dest);
       }
     } else {
+      var lost = [];
+      battle.allies.forEach(function (a) {
+        var beforeV = meta.veteran[a.id] || 0;
+        var rank = meta.ranks[a.id] || 0;
+        var a0 = atkOf(ALLIES[a.id], rank, beforeV);
+        if (beforeV < 10) meta.veteran[a.id] = beforeV + 1;
+        var a1 = atkOf(ALLIES[a.id], rank, meta.veteran[a.id] || 0);
+        lost.push(ALLIES[a.id].name + " 숙련 " + beforeV + "→" + (meta.veteran[a.id] || 0) + " · 공격 " + a0 + "→" + a1);
+      });
+      meta.lastGrowth = lost.join(" / ");
       meta.shards += 2;
       meta.room = "gate";
       meta.safeSteps = 0;
@@ -722,21 +752,17 @@
     top.appendChild(el("h2", "", "전투"));
     top.appendChild(el("p", "gold", "피해 " + battle.damageDealt));
     app.appendChild(top);
+    if (battle.phase === "won") app.appendChild(btn("win", "나간다", "생존자 숙련이 오른다", true));
+    if (battle.phase === "lost") app.appendChild(btn("lose", "현관으로", "체력은 돌아온다. 전술 하나", true));
     app.appendChild(el("p", "log", battle.voice || battle.log));
     battle.enemies.forEach(function (u) { app.appendChild(unitCard(u, true)); });
     battle.allies.forEach(function (u) { app.appendChild(unitCard(u, false)); });
-    if (battle.phase === "won") {
-      app.appendChild(btn("win", "이긴다", "안전 걸음 3. 조각이 오른다", true));
-      return;
-    }
-    if (battle.phase === "lost") {
-      app.appendChild(btn("lose", "패배를 받아들인다", "현관으로. 체력은 돌아온다. 전술 하나", true));
-      return;
-    }
+    if (battle.phase === "won" || battle.phase === "lost") return;
     if (battle.phase === "enemy") {
       var eid = battle.eQueue[0];
       var foe = eid ? findF(battle, eid) : null;
       app.appendChild(btn("estep", "적의 행동", foe ? foe.name : "다음", true));
+      app.appendChild(btn("flee", "탈출", "이 방에 남는다. 안전 걸음은 0"));
       return;
     }
     var actor = battle.queue[0] ? findF(battle, battle.queue[0]) : null;
@@ -770,7 +796,10 @@
     head.appendChild(el("span", "muted", u.hp + " / " + u.maxHp + (u.shield ? " · 막 " + u.shield : "")));
     card.appendChild(head);
     card.appendChild(bar(u.hp, u.maxHp, false));
-    if (!enemy && u.alive) card.appendChild(bar(u.ult, 100, true));
+    if (!enemy && u.alive) {
+      card.appendChild(bar(u.ult, 100, true));
+      card.appendChild(el("small", "", "숙련 " + ((meta && meta.veteran && meta.veteran[u.id]) || 0) + " · 공격 " + u.atk));
+    }
     if (enemy && battle.phase === "player" && u.alive && battle.picks[u.iid]) {
       var sk = u.skills.filter(function (k) { return k.id === battle.picks[u.iid]; })[0];
       var next = forecast(battle, u.iid, sk.id, null);
@@ -807,10 +836,12 @@
   function renderEnding(app) {
     app.appendChild(el("p", "gold", "걸음의 균열"));
     app.appendChild(el("h1", "", "옥좌는 넘어갔다"));
-    app.appendChild(el("p", "muted", "아르는 무릎을 꺾었다. 루가, 세레나, 미라가 현관 명단에 있다. 지도는 아직 걷지 않는다."));
+    app.appendChild(el("p", "muted", "아르는 무릎을 꺾었다. 루가, 세레나, 미라가 현관 명단에 있다."));
+    if (meta.lastGrowth) app.appendChild(el("p", "gold", meta.lastGrowth));
     var box = el("div", "stack");
     box.style.marginTop = "16px";
-    box.appendChild(btn("play", "지도로", "", true));
+    box.appendChild(btn("escape", "현관으로 나간다", "주사위 없음. 저장된다", true));
+    box.appendChild(btn("play", "옥좌에 남는다", "출구 1이 테라스"));
     app.appendChild(box);
   }
 
@@ -820,8 +851,19 @@
     var act = node.dataset.act;
     if (act === "continue" && meta) { phase = "play"; pending = null; render(); return; }
     if (act === "new") { meta = blank(); pending = null; battle = null; phase = "play"; save(); render(); return; }
-    if (act === "title") { phase = "title"; pending = null; render(); return; }
-    if (act === "play") { phase = "play"; render(); return; }
+    if (act === "title") { save(); phase = "title"; pending = null; render(); return; }
+    if (act === "play") { phase = "play"; save(); render(); return; }
+    if (act === "escape") {
+      meta.room = "gate";
+      if (meta.visited.indexOf("gate") < 0) meta.visited.push("gate");
+      healAll();
+      pending = null;
+      battle = null;
+      phase = "play";
+      save();
+      render();
+      return;
+    }
     if (phase === "play") onPlay(act);
     else if (phase === "battle") onBattle(act);
     else if (phase === "offer") onOffer(act);
@@ -829,6 +871,16 @@
 
   function onPlay(act) {
     if (act === "rest") { healAll(); save(); render(); return; }
+    if (act === "escape") {
+      meta.room = "gate";
+      if (meta.visited.indexOf("gate") < 0) meta.visited.push("gate");
+      healAll();
+      pending = null;
+      phase = "play";
+      save();
+      render();
+      return;
+    }
     if (act.indexOf("slot:") === 0) { slot = Number(act.split(":")[1]); render(); return; }
     if (act.indexOf("pick:") === 0) {
       var id = act.split(":")[1];
